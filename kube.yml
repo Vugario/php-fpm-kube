@@ -76,15 +76,21 @@ spec:
             - '--web.console.libraries=/etc/prometheus/console_libraries'
             - '--web.console.templates=/etc/prometheus/consoles'
             - '--web.enable-lifecycle'
+            - '--web.config.file=/etc/prometheus-web/prometheus-web.yml'
           volumeMounts:
             - name: prometheus-config
               mountPath: /etc/prometheus
+            - name: prometheus-web-config
+              mountPath: /etc/prometheus-web
             - name: prometheus-data
               mountPath: /prometheus
       volumes:
         - name: prometheus-config
           configMap:
             name: prometheus-config
+        - name: prometheus-web-config
+          configMap:
+            name: prometheus-web-config
         - name: prometheus-data
           persistentVolumeClaim:
             claimName: prometheus-data
@@ -138,6 +144,16 @@ data:
           - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
             action: keep
             regex: php-fpm-exporter;fpm
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-web-config
+data:
+  prometheus-web.yml: |
+    basic_auth_users:
+        prometheus: $2y$10$i7AD4ZgkDPJwealvkd7lf.c./rlsPIfDeSDfEpiNFvXjte40V3QBy
 
 ---
 apiVersion: apps/v1
