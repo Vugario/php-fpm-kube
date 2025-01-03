@@ -64,6 +64,7 @@ spec:
       labels:
         app: prometheus
     spec:
+      serviceAccountName: prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:latest
@@ -124,10 +125,11 @@ data:
     
         static_configs:
           - targets: ['localhost:9090']
-
+    
       - job_name: 'phpfpm'
-        scrape_interval: 2s
-        scrape_timeout: 1s
+
+        scrape_interval: 5s
+        scrape_timeout: 3s
     
         kubernetes_sd_configs:
           - role: endpoints
@@ -135,7 +137,7 @@ data:
         relabel_configs:
           - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
             action: keep
-            regex: fpmexport;fpm
+            regex: php-fpm-exporter;fpm
 
 ---
 apiVersion: apps/v1
@@ -229,31 +231,6 @@ spec:
       name: fpm
       port: 9253
       targetPort: 9253
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  namespace: default
-  name: prometheus-role
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "services", "endpoints"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  namespace: default
-  name: prometheus-rolebinding
-subjects:
-  - kind: ServiceAccount
-    name: default
-    namespace: default
-roleRef:
-  kind: Role
-  name: prometheus-role
-  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -261,7 +238,7 @@ metadata:
   name: prometheus-cluster-rolebinding
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: prometheus
     namespace: default
 roleRef:
   kind: ClusterRole
@@ -277,3 +254,8 @@ rules:
     resources: ["pods", "services", "endpoints", "nodes"]
     verbs: ["get", "list", "watch"]
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: default
