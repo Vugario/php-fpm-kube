@@ -124,14 +124,18 @@ data:
     
         static_configs:
           - targets: ['localhost:9090']
-    
+
       - job_name: 'phpfpm'
-    
         scrape_interval: 2s
         scrape_timeout: 1s
     
-        static_configs:
-          - targets: ['php-fpm-exporter:9253']
+        kubernetes_sd_configs:
+          - role: endpoints
+    
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: fpmexport;fpm
 
 ---
 apiVersion: apps/v1
@@ -156,23 +160,6 @@ spec:
           env:
             - name: PHP_FPM_PM_STATUS_PATH
               value: "/status"
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: php-fpm-exporter
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: php-fpm-exporter
-  template:
-    metadata:
-      labels:
-        app: php-fpm-exporter
-    spec:
-      containers:
         - name: php-fpm-exporter
           image: hipages/php-fpm_exporter:latest
           ports:
@@ -225,7 +212,7 @@ spec:
       port: 8000
       targetPort: 80
     - protocol: TCP
-      name: fpm
+      name: phpm
       port: 9000
       targetPort: 9000
 
@@ -236,8 +223,57 @@ metadata:
   name: php-fpm-exporter
 spec:
   selector:
-    app: php-fpm-exporter
+    app: phpfpm
   ports:
     - protocol: TCP
+      name: fpm
       port: 9253
       targetPort: 9253
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: prometheus-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  namespace: default
+  name: prometheus-rolebinding
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+roleRef:
+  kind: Role
+  name: prometheus-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-cluster-rolebinding
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: prometheus-cluster-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-cluster-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "nodes"]
+    verbs: ["get", "list", "watch"]
+---
