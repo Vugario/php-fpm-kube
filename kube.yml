@@ -1,0 +1,243 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana-enterprise
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: grafana-storage
+              mountPath: /var/lib/grafana
+      volumes:
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-storage
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:latest
+          ports:
+            - containerPort: 9090
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--web.console.libraries=/etc/prometheus/console_libraries'
+            - '--web.console.templates=/etc/prometheus/consoles'
+            - '--web.enable-lifecycle'
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+            - name: prometheus-data
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    # my global config
+    global:
+      scrape_interval:     15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+      evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+      # scrape_timeout is set to the global default (10s).
+    
+    # Alertmanager configuration
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              # - alertmanager:9093
+    
+    # Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+    rule_files:
+    # - "first_rules.yml"
+    # - "second_rules.yml"
+    
+    # A scrape configuration containing exactly one endpoint to scrape:
+    # Here it's Prometheus itself.
+    scrape_configs:
+      # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+      - job_name: 'prometheus'
+    
+        # metrics_path defaults to '/metrics'
+        # scheme defaults to 'http'.
+    
+        static_configs:
+          - targets: ['localhost:9090']
+    
+      - job_name: 'phpfpm'
+    
+        scrape_interval: 2s
+        scrape_timeout: 1s
+    
+        static_configs:
+          - targets: ['php-fpm-exporter:9253']
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: phpfpm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: phpfpm
+  template:
+    metadata:
+      labels:
+        app: phpfpm
+    spec:
+      containers:
+        - name: phpfpm
+          image: mennowolvers/php-fpm-status
+          ports:
+            - containerPort: 80
+          env:
+            - name: PHP_FPM_PM_STATUS_PATH
+              value: "/status"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-fpm-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: php-fpm-exporter
+  template:
+    metadata:
+      labels:
+        app: php-fpm-exporter
+    spec:
+      containers:
+        - name: php-fpm-exporter
+          image: hipages/php-fpm_exporter:latest
+          ports:
+            - containerPort: 9253
+          env:
+            - name: PHP_FPM_SCRAPE_URI
+              value: "tcp://phpfpm:9000/status"
+            - name: PHP_FPM_LOG_LEVEL
+              value: "debug"
+            - name: PHP_FPM_FIX_PROCESS_COUNT
+              value: "true"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - protocol: TCP
+      port: 9090
+      targetPort: 9090
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: phpfpm
+spec:
+  selector:
+    app: phpfpm
+  ports:
+    - protocol: TCP
+      name: http
+      port: 8000
+      targetPort: 80
+    - protocol: TCP
+      name: fpm
+      port: 9000
+      targetPort: 9000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-fpm-exporter
+spec:
+  selector:
+    app: php-fpm-exporter
+  ports:
+    - protocol: TCP
+      port: 9253
+      targetPort: 9253
